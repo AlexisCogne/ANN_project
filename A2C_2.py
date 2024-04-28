@@ -1,14 +1,9 @@
-from __future__ import annotations
-
-import os
-
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 from torch import optim
-from tqdm import tqdm
 
+# THIS A2C IS ADAPTED FROM https://github.com/hermesdt/reinforcement-learning/blob/master/a2c/cartpole_a2c_episodic.ipynb
 
 class A2Cx(nn.Module):
     def __init__(

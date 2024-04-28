@@ -1,14 +1,9 @@
-from __future__ import annotations
-
-import os
-
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 from torch import optim
-from tqdm import tqdm
 
+# THIS IMPLEMENTATION IS BASED ON THE FOLLOWING SITE : https://gymnasium.farama.org/tutorials/gymnasium_basics/vector_envs_tutorial/
 class A2C(nn.Module):
     """
     (Synchronous) Advantage Actor-Critic agent class
