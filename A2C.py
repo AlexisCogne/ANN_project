@@ -136,8 +136,6 @@ class A2C(nn.Module):
         
         #sans entropy bonus
         actor_loss = -(advantages.detach() * action_log_probs).mean()
-        print("critic_loss", critic_loss)
-        print("actor_loss", actor_loss)
         return (critic_loss, actor_loss)
 
     def update_parameters(self, critic_loss: torch.Tensor, actor_loss: torch.Tensor):
