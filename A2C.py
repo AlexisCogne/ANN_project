@@ -32,7 +32,7 @@ class A2C(nn.Module):
         self.device = device
         self.n_envs = n_envs
 
-            #input is the state S(t), output is the probability distribution over the actions
+        #input is the state S(t), output is the probability distribution over the actions
         self.actor = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
@@ -41,6 +41,7 @@ class A2C(nn.Module):
             nn.Linear(64, n_actions),
             nn.Softmax()
         ).to(self.device)
+
         #input is the state S(t), output is the value of the state V(s)
         self.critic = nn.Sequential(
             nn.Linear(state_dim, 64),
@@ -104,6 +105,7 @@ class A2C(nn.Module):
         gamma: float,
         ent_coef: float,
         device: torch.device,
+        state_values: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Computes the loss of a minibatch (transitions collected in one sampling phase) for actor and critic
@@ -128,6 +130,27 @@ class A2C(nn.Module):
                 rewards[t] + gamma * masks[t] * value_preds[t + 1] - value_preds[t]
             )
             advantages[t] = td_error
+        Qvalues = torch.zeros_like(rewards) 
+        Qval,_ = self.forward(state_values) #get the value of the last state [n_envs, 1]
+        Qval = torch.squeeze(Qval) #remove the extra dimension
+        Qval = Qval.detach()
+        
+        T = rewards.size(dim=0) # to get n_steps_per_update
+        
+        # compute the advantages
+        #maks is 0 if the episode is done, 1 otherwise, we don't want to compute the advantage for the last step if its terminated
+        for t in reversed(range(T)):
+            Qval = rewards[t] + masks[t] *gamma * Qval
+            Qvalues[t] = Qval
+
+        advantages = Qvalues - value_preds
+
+        # calculate the loss of the minibatch for actor and critic, it is a scalar tensor value : mean of all the advantages
+        critic_loss = advantages.pow(2).mean() 
+        actor_loss = -(advantages.detach() * action_log_probs).mean()
+
+        return (critic_loss, actor_loss)
+    '''
         # calculate the loss of the minibatch for actor and critic, it is a scalar tensor value : mean of all the advantages
         critic_loss = advantages.pow(2).mean() 
 
@@ -137,7 +160,7 @@ class A2C(nn.Module):
         #sans entropy bonus
         actor_loss = -(advantages.detach() * action_log_probs).mean()
         return (critic_loss, actor_loss)
-
+'''
     def update_parameters(self, critic_loss: torch.Tensor, actor_loss: torch.Tensor):
         """
         Updates the parameters of the actor and critic networks.
