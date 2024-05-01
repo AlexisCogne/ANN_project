@@ -60,7 +60,7 @@ class A2C(nn.Module):
         return (state_values, action_pd)
     
 
-    def select_action(self, states: np.ndarray, bool_greedy):
+    def select_action(self, states: np.ndarray, bool_greedy)-> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # A COMMENTER
 
         state_values, action_pd = self.forward(states)
@@ -72,7 +72,7 @@ class A2C(nn.Module):
         action_log_probs = action_pd.log_prob(actions) # purpose : measure of the log likelihood of the chosen actions under the current policy
         entropy = action_pd.entropy()
         return (actions, action_log_probs, state_values, entropy)
-
+    """
     def get_losses(
         self,
         rewards: torch.Tensor,
@@ -103,6 +103,7 @@ class A2C(nn.Module):
         #sans entropy bonus
         actor_loss = -(advantages.detach() * action_log_probs).mean()
         return (critic_loss, actor_loss)
+    """
     
     def get_losses(
         self,
@@ -112,22 +113,24 @@ class A2C(nn.Module):
         entropy: torch.Tensor,
         masks: torch.Tensor,
         gamma: float,
-        ent_coef: float,
-        device: torch.device,
-        state_values: torch.Tensor # VALUE OF LAST STATE POUR COMPUTE Q VALUES [n_envs, 1]
+        #ent_coef: float, # Not used
+        #device: torch.device, # Not used
+        state_values: torch.Tensor # VALUE OF LAST STATE POUR COMPUTE Q VALUES [n_envs, 4], 4 observations per state
+        # Don't forget to call get_losses with states_tensor where: states_tensor = torch.tensor(states, device=device) 
 
     ):
     # A COMMENTER
         Qvalues = torch.zeros_like(rewards) 
-        Qval = self.critic(state_values) #get the value of the last state [n_envs, 1]
-        Qval = torch.squeeze(Qval) #remove the extra dimension
-        Qval = Qval.detach()
+        Qval = self.critic(state_values) #get the value of the last state => tensor: torch.Size([n_envs, 1])
+        Qval = torch.squeeze(Qval) #remove the extra dimension => tensor torch.Size([n_envs])
+        Qval = Qval.detach() # No gradient
         
-        T = rewards.size(dim=0) # to get n_steps_per_update
+        T = rewards.size(dim=0) # T = n_steps_per_update
         
         # compute the advantages
         #maks is 0 if the episode is done, 1 otherwise, we don't want to compute the advantage for the last step if its terminated
-        for t in reversed(range(T)):
+        for t in reversed(range(T)): # t = T-1 to 0 !
+            #print("t = ",  t)
             Qval = rewards[t] + masks[t] *gamma * Qval
             Qvalues[t] = Qval
 
