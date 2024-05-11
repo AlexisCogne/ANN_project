@@ -125,9 +125,13 @@ class A2C(nn.Module):
         Qval = torch.squeeze(Qval) #remove the extra dimension => tensor torch.Size([n_envs])
         Qval = Qval.detach() # No gradient
         
-        T = rewards.size(dim=0) # T = n_steps_per_update
+        #TODO gérer mask pour n_envs if 1 in mask, aussi torch.where()
+        if 0 in masks:
+            T = torch.where(masks==0)[0].item()+1 # +1 to add the index 0
+        else: 
+            T = rewards.size(dim=0) # T = n_steps_per_update
         
-        # compute the advantages
+        # compute the advantages 
         #maks is 0 if the episode is done, 1 otherwise, we don't want to compute the advantage for the last step if its terminated
         for t in reversed(range(T)): # t = T-1 to 0 !
             #print("t = ",  t)
