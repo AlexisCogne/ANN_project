@@ -66,7 +66,7 @@ class A2C(nn.Module):
         state_values, action_pd = self.forward(states)
         action_pd = torch.distributions.Categorical(probs=action_pd) # A VERIFIER
         if bool_greedy:
-            actions = action_pd.probs.argmax(dim=1)
+            actions = action_pd.probs.argmax(dim=0)
         else:
             actions = action_pd.sample() # takes action with highest probability
         action_log_probs = action_pd.log_prob(actions) # purpose : measure of the log likelihood of the chosen actions under the current policy
