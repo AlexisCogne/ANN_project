@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
-from A2C_discrete import A2C
+from A2C_discrete_kworkers import A2C
 from tqdm import tqdm
 import os
 
