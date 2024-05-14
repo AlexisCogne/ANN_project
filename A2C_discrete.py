@@ -117,55 +117,68 @@ class A2C(nn.Module):
         #device: torch.device, # Not used
         end_states: torch.Tensor, # VALUE OF LAST STATE POUR COMPUTE Q VALUES [n_envs, 4], 4 observations per state
         # Don't forget to call get_losses with states_tensor where: states_tensor = torch.tensor(states, device=device) 
-        end_states_idx: list[int]
+        end_states_idx
 
     ):
     # A COMMENTER
-        # FOR 1 WORKER
-        Ts = np.diff(end_states_idx)
-    
-        #add +1 only to the first element of Ts
-        Ts[0] = Ts[0] + 1
-        advantages = torch.empty(0)
-
-        if 0 in masks:
-            debugging = False
-            if debugging:
-                print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-                print("DEBUGGING")
-                print(f"end_states: {end_states}")
-                print(f"end_states_idx: {end_states_idx}")
-                print(f"mask: {masks}")
-                print(f"Ts: {Ts}")
-        else:
-            debugging = False
+        advantages_all = torch.zeros_like(rewards)
+        for env_idx in range(self.n_envs):
+            print("ENV IDX: ", env_idx)
+            Ts = np.diff(end_states_idx[env_idx])
         
+            #add +1 only to the first element of Ts
+            Ts[0] = Ts[0] + 1
+            advantages = torch.empty(0)
 
-        for i, T in enumerate(Ts):
-            if debugging:
-                print(f"i: {i}, T: {T}")
-            with torch.no_grad():
+            if 0 in masks:
+                debugging = False
+                if debugging:
+                    print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+                    print("DEBUGGING")
+                    print(f"end_states: {end_states}")
+                    print(f"end_states_idx: {end_states_idx}")
+                    print(f"mask: {masks}")
+                    print(f"Ts: {Ts}")
+            else:
+                debugging = False
+                
+            
 
-                idx = end_states_idx[i]
-                if i != 0:
-                    idx+=1
-                Qvalues = torch.zeros(T,1)
-                Qval = self.critic(end_states[i]) #get the value of the last state
-                Qval = torch.squeeze(Qval)
-                for t in reversed(range(T)): # t = T-1 to 0 !
-                    if debugging:
-                        print(f"t: {t}, idx: {idx}, end_states_idx[i+1]: {end_states_idx[i+1]}")
-                        
-                    Qval = rewards[t+idx] + masks[t+idx] *gamma * Qval #idx starts at 0, we need to add it to shift the time index
-                    Qvalues[t] = Qval
-                    if debugging:
-                        print(f"rewards[t+idx+1]: {rewards[t+idx]}, masks[t+idx+1]: {masks[t+idx]}, gamma: {gamma}, Qval: {Qval}")
-                        print(f"Qvalues: {Qvalues}")
-            if debugging:       
+            for i, T in enumerate(Ts):
+                if debugging:
+                    print(f"i: {i}, T: {T}")
+                with torch.no_grad():
+
+                    idx = end_states_idx[env_idx][i]
+                    if i != 0:
+                        idx+=1
+                    Qvalues = torch.zeros(T,1)
+                    Qval = self.critic(end_states[env_idx][i]) #get the value of the last state
+                    Qval = torch.squeeze(Qval)
+                    for t in reversed(range(T)): # t = T-1 to 0 !
+                        if debugging:
+                            print(f"t: {t}, idx: {idx}, end_states_idx[i+1]: {end_states_idx[env_idx][i+1]}")
+                            
+                        Qval = rewards[t+idx][env_idx] + masks[t+idx][env_idx] *gamma * Qval #idx starts at 0, we need to add it to shift the time index
+                        Qvalues[t] = Qval
+                        if debugging:
+                            print(f"rewards[t+idx+1]: {rewards[t+idx][env_idx]}, masks[t+idx+1]: {masks[t+idx]}, gamma: {gamma}, Qval: {Qval}")
+                            print(f"Qvalues: {Qvalues}")
+                if debugging:       
+                    print("Value preds: ", value_preds)
+                    print("Small value preds: ", value_preds[idx:end_states_idx[env_idx][i+1]+1][env_idx])
+                print("Qvalues: ", Qvalues)
                 print("Value preds: ", value_preds)
-                print("Small value preds: ", value_preds[idx:end_states_idx[i+1]+1])
-            advantages_t = Qvalues - value_preds[idx:end_states_idx[i+1]+1]
-            advantages = torch.cat((advantages, advantages_t), 0)
+                print("idx: ", idx)
+                print("end_states_idx[i+1]: ", end_states_idx[env_idx][i+1])
+                print("Value preds[env_idx][idx:end_states_idx[i+1]+1]: ", value_preds[idx:end_states_idx[env_idx][i+1]+1][env_idx])
+                advantages_t = Qvalues - value_preds[idx:end_states_idx[env_idx][i+1]+1][env_idx]
+                advantages = torch.cat((advantages, advantages_t), 0)
+                print("Advantages_t: ", advantages_t)
+                print("Advantages: ", advantages)
+            print("Advantages_all: ", advantages_all)
+            print("Advantages_all[env_idx]: ", advantages_all[env_idx])
+            advantages_all[env_idx] = advantages
         
 
 
