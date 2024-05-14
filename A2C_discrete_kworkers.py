@@ -70,7 +70,8 @@ class A2C(nn.Module):
         else:
             actions = action_pd.sample() # takes action with highest probability
         action_log_probs = action_pd.log_prob(actions) # purpose : measure of the log likelihood of the chosen actions under the current policy
-        entropy = action_pd.entropy()
+        with torch.no_grad():
+            entropy = action_pd.entropy()
         return (actions, action_log_probs, state_values, entropy)
     """
     def get_losses(
@@ -120,10 +121,11 @@ class A2C(nn.Module):
         end_states_idx
 
     ):
-    # A COMMENTER
+        # A COMMENTER
+     
         advantages_all = torch.zeros_like(rewards)
         for env_idx in range(self.n_envs):
-            print("ENV IDX: ", env_idx)
+           
             Ts = np.diff(end_states_idx[env_idx])
         
             #add +1 only to the first element of Ts
@@ -159,27 +161,19 @@ class A2C(nn.Module):
                         if debugging:
                             print(f"t: {t}, idx: {idx}, end_states_idx[i+1]: {end_states_idx[env_idx][i+1]}")
                             
-                        Qval = rewards[t+idx][env_idx] + masks[t+idx][env_idx] *gamma * Qval #idx starts at 0, we need to add it to shift the time index
+                        Qval = rewards[t+idx,env_idx] + masks[t+idx,env_idx] *gamma * Qval #idx starts at 0, we need to add it to shift the time index
                         Qvalues[t] = Qval
                         if debugging:
-                            print(f"rewards[t+idx+1]: {rewards[t+idx][env_idx]}, masks[t+idx+1]: {masks[t+idx]}, gamma: {gamma}, Qval: {Qval}")
+                            print(f"rewards[t+idx][env_idx]: {rewards[t+idx,env_idx]}, masks[t+idx]: {masks[t+idx]}, gamma: {gamma}, Qval: {Qval}")
                             print(f"Qvalues: {Qvalues}")
+                 
                 if debugging:       
                     print("Value preds: ", value_preds)
-                    print("Small value preds: ", value_preds[idx:end_states_idx[env_idx][i+1]+1][env_idx])
-                print("Qvalues: ", Qvalues)
-                print("Value preds: ", value_preds)
-                print("idx: ", idx)
-                print("end_states_idx[i+1]: ", end_states_idx[env_idx][i+1])
-                print("Value preds[env_idx][idx:end_states_idx[i+1]+1]: ", value_preds[idx:end_states_idx[env_idx][i+1]+1][env_idx])
-                advantages_t = Qvalues - value_preds[idx:end_states_idx[env_idx][i+1]+1][env_idx]
+                    print("Small value preds: ", value_preds[idx:end_states_idx[env_idx][i+1]+1,env_idx])
+                advantages_t = Qvalues - value_preds[idx:end_states_idx[env_idx][i+1]+1,env_idx].reshape(-1,1) #reshape to have the same shape as Qvalues
                 advantages = torch.cat((advantages, advantages_t), 0)
-                print("Advantages_t: ", advantages_t)
-                print("Advantages: ", advantages)
-            print("Advantages_all: ", advantages_all)
-            print("Advantages_all[env_idx]: ", advantages_all[env_idx])
-            advantages_all[env_idx] = advantages
-        
+            advantages_all[:,env_idx] = advantages.T
+
 
 
 
