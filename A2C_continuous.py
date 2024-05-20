@@ -72,11 +72,11 @@ class A2C(nn.Module):
             actions = action_mean
         else:
             actions = action_distribution.sample() # takes action with highest probability
-        #action_log_probs = action_pd.log_prob(actions) # purpose : measure of the log likelihood of the chosen actions under the current policy
+        action_log_probs = action_distribution.log_prob(actions) # purpose : measure of the log likelihood of the chosen actions under the current policy
         #entropy = action_pd.entropy()
 
         clipped_actions = torch.clamp(actions, -3, 3) # clip the actions to be in the range [-1, 1]
-        return (clipped_actions, state_values)
+        return (clipped_actions, action_log_probs, state_values)
     """
     def get_losses(
         self,
@@ -130,7 +130,7 @@ class A2C(nn.Module):
         # action_log_probs = action_log_probs.to(dtype=torch.float32)
         # value_preds = value_preds.to(dtype=torch.float32)
         masks = masks.to(dtype=torch.float32)
-        for i in range(len(end_states)):
+        for i in range(len(end_states)): ## Update in a cleaner way
             end_states[i] = end_states[i].to(dtype=torch.float32)
     # A COMMENTER
         # FOR 1 WORKER
@@ -162,7 +162,7 @@ class A2C(nn.Module):
                 if i != 0:
                     idx+=1
                 Qvalues = torch.zeros(T, 1, dtype=torch.float32, device=self.device)
-                print( end_states[i])
+                #print( end_states[i])
                 Qval = self.critic(end_states[i]) #get the value of the last state
                 #Qval = torch.squeeze(Qval).to(dtype=torch.float32)
                 for t in reversed(range(T)): # t = T-1 to 0 !
@@ -187,8 +187,6 @@ class A2C(nn.Module):
         # calculate the loss of the minibatch for actor and critic, it is a scalar tensor value : mean of all the advantages
         critic_loss = advantages.pow(2).mean() 
         actor_loss = -(advantages.detach() * action_log_probs).mean()
-        print("ACtion log probs", action_log_probs.requires_grad)
-        print("Actor loss post: ", actor_loss.requires_grad)
 
     
         return (critic_loss, actor_loss)
