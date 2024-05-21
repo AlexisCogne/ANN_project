@@ -73,10 +73,10 @@ class A2C(nn.Module):
         else:
             actions = action_distribution.sample() # takes action with highest probability
         action_log_probs = action_distribution.log_prob(actions) # purpose : measure of the log likelihood of the chosen actions under the current policy
-        #entropy = action_pd.entropy()
+        entropy = action_distribution.entropy()
 
         clipped_actions = torch.clamp(actions, -3, 3) # clip the actions to be in the range [-1, 1]
-        return (clipped_actions, action_log_probs, state_values)
+        return (clipped_actions, action_log_probs, state_values, entropy)
     """
     def get_losses(
         self,
