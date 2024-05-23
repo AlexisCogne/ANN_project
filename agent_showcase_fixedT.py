@@ -13,7 +13,7 @@ import time
 env = gym.make("CartPole-v1", render_mode="human", max_episode_steps=500)
 states = []
 # get an initial state
-state, info = env.reset(seed=42)
+state, info = env.reset(seed=40)
 states.append(state)
 done = False
 # play one episode
