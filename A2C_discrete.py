@@ -70,7 +70,8 @@ class A2C(nn.Module):
         else:
             actions = action_pd.sample() # takes action with highest probability
         action_log_probs = action_pd.log_prob(actions) # purpose : measure of the log likelihood of the chosen actions under the current policy
-        entropy = action_pd.entropy()
+        with torch.no_grad():
+            entropy = action_pd.entropy()
         return (actions, action_log_probs, state_values, entropy)
     """
     def get_losses(
@@ -110,63 +111,68 @@ class A2C(nn.Module):
         rewards: torch.Tensor,
         action_log_probs: torch.Tensor,
         value_preds: torch.Tensor,
-        entropy: torch.Tensor,
         masks: torch.Tensor,
         gamma: float,
         #ent_coef: float, # Not used
         #device: torch.device, # Not used
         end_states: torch.Tensor, # VALUE OF LAST STATE POUR COMPUTE Q VALUES [n_envs, 4], 4 observations per state
         # Don't forget to call get_losses with states_tensor where: states_tensor = torch.tensor(states, device=device) 
-        end_states_idx: list[int]
+        end_states_idx
 
     ):
-    # A COMMENTER
-        # FOR 1 WORKER
-        Ts = np.diff(end_states_idx)
-    
-        #add +1 only to the first element of Ts
-        Ts[0] = Ts[0] + 1
-        advantages = torch.empty(0)
-
-        if 0 in masks:
-            debugging = False
-            if debugging:
-                print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-                print("DEBUGGING")
-                print(f"end_states: {end_states}")
-                print(f"end_states_idx: {end_states_idx}")
-                print(f"mask: {masks}")
-                print(f"Ts: {Ts}")
-        else:
-            debugging = False
+        # A COMMENTER
+     
+        advantages_all = torch.zeros_like(rewards)
+        for env_idx in range(self.n_envs):
+           
+            Ts = np.diff(end_states_idx[env_idx])
         
+            #add +1 only to the first element of Ts
+            Ts[0] = Ts[0] + 1
+            advantages = torch.empty(0)
 
-        for i, T in enumerate(Ts):
-            if debugging:
-                print(f"i: {i}, T: {T}")
-            with torch.no_grad():
+            if 0 in masks:
+                debugging = False
+                if debugging:
+                    print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+                    print("DEBUGGING")
+                    print(f"end_states: {end_states}")
+                    print(f"end_states_idx: {end_states_idx}")
+                    print(f"mask: {masks}")
+                    print(f"Ts: {Ts}")
+            else:
+                debugging = False
+                
+            
 
-                idx = end_states_idx[i]
-                if i != 0:
-                    idx+=1
-                Qvalues = torch.zeros(T,1)
-                Qval = self.critic(end_states[i]) #get the value of the last state
-                Qval = torch.squeeze(Qval)
-                for t in reversed(range(T)): # t = T-1 to 0 !
-                    if debugging:
-                        print(f"t: {t}, idx: {idx}, end_states_idx[i+1]: {end_states_idx[i+1]}")
-                        
-                    Qval = rewards[t+idx] + masks[t+idx] *gamma * Qval #idx starts at 0, we need to add it to shift the time index
-                    Qvalues[t] = Qval
-                    if debugging:
-                        print(f"rewards[t+idx+1]: {rewards[t+idx]}, masks[t+idx+1]: {masks[t+idx]}, gamma: {gamma}, Qval: {Qval}")
-                        print(f"Qvalues: {Qvalues}")
-            if debugging:       
-                print("Value preds: ", value_preds)
-                print("Small value preds: ", value_preds[idx:end_states_idx[i+1]+1])
-            advantages_t = Qvalues - value_preds[idx:end_states_idx[i+1]+1]
-            advantages = torch.cat((advantages, advantages_t), 0)
-        
+            for i, T in enumerate(Ts):
+                if debugging:
+                    print(f"i: {i}, T: {T}")
+                with torch.no_grad():
+
+                    idx = end_states_idx[env_idx][i]
+                    if i != 0:
+                        idx+=1
+                    Qvalues = torch.zeros(T,1)
+                    Qval = self.critic(end_states[env_idx][i]) #get the value of the last state
+                    Qval = torch.squeeze(Qval)
+                    for t in reversed(range(T)): # t = T-1 to 0 !
+                        if debugging:
+                            print(f"t: {t}, idx: {idx}, end_states_idx[i+1]: {end_states_idx[env_idx][i+1]}")
+                            
+                        Qval = rewards[t+idx,env_idx] + masks[t+idx,env_idx] *gamma * Qval #idx starts at 0, we need to add it to shift the time index
+                        Qvalues[t] = Qval
+                        if debugging:
+                            print(f"rewards[t+idx][env_idx]: {rewards[t+idx,env_idx]}, masks[t+idx]: {masks[t+idx]}, gamma: {gamma}, Qval: {Qval}")
+                            print(f"Qvalues: {Qvalues}")
+                 
+                if debugging:       
+                    print("Value preds: ", value_preds)
+                    print("Small value preds: ", value_preds[idx:end_states_idx[env_idx][i+1]+1,env_idx])
+                advantages_t = Qvalues - value_preds[idx:end_states_idx[env_idx][i+1]+1,env_idx].reshape(-1,1) #reshape to have the same shape as Qvalues
+                advantages = torch.cat((advantages, advantages_t), 0)
+            advantages_all[:,env_idx] = advantages.T
+
 
 
 
