@@ -69,7 +69,6 @@ class A2C(nn.Module):
         state_values = self.critic(state)  # shape: [1]
         action_mean = self.actor(state)  # shape: [1]
         exp_log_std = self.log_std.exp() # shape: [1] 
-        print(exp_log_std)
        
         return (state_values, action_mean, exp_log_std)
     
