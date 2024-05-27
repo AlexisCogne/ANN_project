@@ -35,7 +35,7 @@ def getTrajectory():
 
 
 
-def trainAgent(agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_shape,action_space_dims,device = "cpu",critic_lr = 1e-3, actor_lr = 1e-5, n_envs = 1,n_steps_per_update = 1, evaluation_interval = 200000, n_eval_runs = 10,stochasticity_bool = True,stochastic_reward_probability = 0.9,gamma = 0.99):
+def trainAgent(agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_shape,action_space_dims,device = "cpu",critic_lr = 1e-3, actor_lr = 1e-5, n_envs = 1,n_steps_per_update = 1, evaluation_interval = 200000,logging_interval = 1000, n_eval_runs = 10,stochasticity_bool = True,stochastic_reward_probability = 0.9,gamma = 0.99):
     # LOGGED VARIABLES
 
     # per seed
@@ -45,9 +45,12 @@ def trainAgent(agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_sh
     values = [[] for _ in range(n_seeds)] # logs the values of the agent on the fixed trajectory
     evaluation_returns_seeds = [[] for _ in range(n_seeds)]
 
-    # per worker (not used in the plots)
+    # per worker (not returned or used)
     episode_returns = [[] for _ in range(n_envs)] # logs the returns per episode per worker
     steps_episodes = [[] for _ in range(n_envs)] # logs the steps taken in each episode per worker
+
+    training_returns =[[] for _ in range(n_seeds)] # logs the returns per episode for all workers
+    training_returns_idx = [[] for _ in range(n_seeds)]# logs the steps taken in each episode for all workers
 
     # get the fixed trajectory for evaluation
     fixed_trajectory = getTrajectory()
@@ -75,10 +78,11 @@ def trainAgent(agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_sh
             state, info = envs[i].reset(seed=agent_seed)  #only use the seed when resetting the first time
             states.append(state)
 
-
+        logging_counter = 0
+        returns_log_bool = True
         # use tqdm to get a progress bar for training
         for steps in tqdm(range(n_updates+1)):
-                
+            logging_counter += 1
 
             # reset lists that collect experiences of a n_steps_per_update
             n_value_preds = torch.zeros(n_steps_per_update, n_envs, device=device)
@@ -126,6 +130,11 @@ def trainAgent(agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_sh
                         end_states_idx[env_idx].append(step)
                         states[env_idx], info = envs[env_idx].reset() # do not use the seed when resetting again
                         ep_counter += 1
+                        if returns_log_bool: # Whichever worker finishes first, we log the return of this worker
+                            returns_log_bool = False
+                            training_returns[s].append(ep_reward[env_idx])
+                            training_returns_idx[s].append(steps_workers[env_idx])
+                            
                         steps_episodes[env_idx].append(steps_workers[env_idx])
                         episode_returns[env_idx].append(ep_reward[env_idx])
                         ep_reward[env_idx] = 0
@@ -152,11 +161,14 @@ def trainAgent(agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_sh
             # update the actor and critic networks
             agent.update_parameters(critic_loss, actor_loss)
 
-
-            # log the losses and entropy
-            critic_losses[steps, s] = critic_loss.detach().cpu().numpy()
-            actor_losses[steps, s] = actor_loss.detach().cpu().numpy()
-            entropies[steps, s] = sum(entropy) / len(entropy)
+            if logging_counter>= logging_interval:
+                logging_counter = 0
+                returns_log_bool = True
+                
+                # log the losses and entropy
+                critic_losses[steps, s] = critic_loss.detach().cpu().numpy()
+                actor_losses[steps, s] = actor_loss.detach().cpu().numpy()
+                entropies[steps, s] = sum(entropy) / len(entropy)
 
 
             #After every 20k steps, evaluate the performance of your agent by running it for 10 episodes with a greedy action policy (without noise)
@@ -191,8 +203,10 @@ def trainAgent(agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_sh
                         returns.append(episode_return)
                         episode_lengths.append(episode_length)  
                     evaluation_returns_seeds[s].append(np.mean(returns))
+
+        
     # Logging variables for each agent
-    return(values,critic_losses,actor_losses,entropies,evaluation_returns_seeds)
+    return(values,critic_losses,actor_losses,entropies,evaluation_returns_seeds,training_returns,training_returns_idx)
 
 # Aggregate function for plotting the 3 seeds together
 def aggregate_plot(y1,y2,y3):
@@ -239,6 +253,39 @@ def aggregate_plot(y1,y2,y3):
     y_avg = (y1 + y2 + y3) / 3
 
     return y_min, y_max, y_avg
+
+def filter1000k(x):
+    """
+    Filter the input list by keeping only the first occurrence of each thousand group.
+
+    Parameters:
+    x: list
+        The input list to be filtered.
+
+    Returns:
+    filtered_values: list
+        The filtered list containing only the first occurrence of each thousand group.
+    indexes: list
+        The indexes of the elements that were kept in the filtered list.
+    """
+
+    # Initialize the filtered list and indexes list
+    filtered_values = []
+    indexes = []
+
+    # Initialize a set to track the thousands we have already encountered
+    thousands_encountered = set()
+
+    # Iterate through the list with index
+    for index, value in enumerate(x):
+        thousand_group = value // 1000
+        if thousand_group not in thousands_encountered:
+            filtered_values.append(value)
+            indexes.append(index)
+            thousands_encountered.add(thousand_group)
+
+    return filtered_values, indexes
+
 
 def plot_losses_and_returns(fig, axs, compare_bool, critic_losses, actor_losses, entropies, evaluation_returns_seeds, agents_seeds, id_agent, n_steps_per_update, n_envs, color_agent, y_lim = [1e-5, 1e-1]):
     """
