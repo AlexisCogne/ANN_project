@@ -39,9 +39,9 @@ def trainAgent(n_steps, agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discre
     # LOGGED VARIABLES
 
     # per seed
-    critic_losses = np.zeros((n_steps//1000, n_seeds))
-    actor_losses = np.zeros((n_steps//1000, n_seeds))
-    entropies = np.zeros((n_steps//1000, n_seeds))
+    critic_losses = np.zeros((n_steps//1000+1, n_seeds))
+    actor_losses = np.zeros((n_steps//1000+1, n_seeds))
+    entropies = np.zeros((n_steps//1000+1, n_seeds))
     values = [[] for _ in range(n_seeds)] # logs the values of the agent on the fixed trajectory
     evaluation_returns_seeds = [[] for _ in range(n_seeds)]
 
@@ -78,7 +78,7 @@ def trainAgent(n_steps, agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discre
             state, info = envs[i].reset(seed=agent_seed)  #only use the seed when resetting the first time
             states.append(state)
 
-        logging_counter = 0
+        logging_counter = 1000 # Set to 1000 so we log the value at the beginning
         k_log = 0
         returns_log_bool = True
         # use tqdm to get a progress bar for training
@@ -108,12 +108,14 @@ def trainAgent(n_steps, agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discre
                             action.cpu().numpy()
                         )
                         steps_workers[env_idx] += 1
+                    
+                    ep_reward[env_idx] += reward # increase episode return before masking
+
                     if stochasticity_bool:
                         # introduce stochasticity in the reward
                         if np.random.rand() < stochastic_reward_probability:
                             reward = 0
 
-                    ep_reward[env_idx] += reward # increase episode return
                     mask = not is_terminated[env_idx] # define mask for bootstrapping
 
                     # log the value, reward and action log prob of the last step
@@ -329,10 +331,10 @@ def plot_losses_and_returns(fig, axs, compare_bool, critic_losses, actor_losses,
 
     # x values for the plots 
     if compare_bool: # In case plots are compared, the x_axis is in terms of steps
-        x_axis = np.arange(0, critic_y_min.shape[0]) * n_envs * n_steps_per_update
+        x_axis = np.arange(0, critic_y_min.shape[0]) * n_envs * n_steps_per_update * 1000
         x_label = "Number of steps"
     else: # Otherwise the x_axis is in terms of updates
-        x_axis = np.arange(0, critic_y_min.shape[0])
+        x_axis = np.arange(0, critic_y_min.shape[0]) * 1000
         x_label = "Number of updates"
 
     reward_x = np.arange(0, reward_y_min.shape[0])
