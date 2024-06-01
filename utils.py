@@ -8,36 +8,89 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 def set_seed(seed):
+    """
+    Set the random seed for PyTorch and NumPy to ensure reproducibility.
+
+    Parameters:
+    - seed (int): The random seed value to set.
+
+    Returns:
+    - None
+    """
     torch.manual_seed(seed) # pytorch random seed
     np.random.seed(seed) # numpy random seed
 
-def getTrajectory():
+def getTrajectory(discrete_bool):
+    """
+    Generates a trajectory for an environment.
+
+    Parameters:
+    - discrete_bool (bool): A boolean indicating whether the environment is discrete or continuous.
+
+    Returns:
+    - states (list): A list containing the states of the environment over the trajectory.
+    """
     # create a new sample environment to get new random parameters
-    env = gym.make("InvertedPendulum-v4",max_episode_steps=1000) ## Continuous case
+    if discrete_bool: # Discrete case
+        env = gym.make("CartPole-v1", max_episode_steps=500)
+    else: # Continuous case
+        env = gym.make("InvertedPendulum-v4", max_episode_steps=1000)
     states = []
     # get an initial state
     state, info = env.reset(seed=42)
     states.append(state)
     done = False
+
     # play one episode
     for i in range(6):
         # perform the action A_{t} in the environment to get S_{t+1} and R_{t+1}
-        state, reward, terminated, truncated, info = env.step([-0.2]) # only pushes left (0 is left, 1 is right)
+        if discrete_bool: # Discrete case
+            state, reward, terminated, truncated, info = env.step(0) # only pushes left (0 is left, 1 is right)
+        else: # Continuous case
+            state, reward, terminated, truncated, info = env.step([-0.2]) # only pushes left
         states.append(state)
         #pause for 0.5s
     while not done:
         # perform the action A_{t} in the environment to get S_{t+1} and R_{t+1}
-        state, reward, terminated, truncated, info = env.step([1]) # only pushes left (0 is left, 1 is right)
+        if discrete_bool: # Discrete case
+            state, reward, terminated, truncated, info = env.step(1) # only pushes right (0 is left, 1 is right)
+        else: # Continuous case
+            state, reward, terminated, truncated, info = env.step([1]) # only pushes right
         states.append(state)
         done = terminated or truncated
-    
     env.close()
     return states
 
+def trainAgent(n_steps, bootstrap, agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_shape,action_space_dims,device = "cpu",critic_lr = 1e-3, actor_lr = 1e-5, n_envs = 1,n_steps_per_update = 1, evaluation_interval = 20000,logging_interval = 1000, n_eval_runs = 10,stochasticity_bool = True,stochastic_reward_probability = 0.9,gamma = 0.99):
+    """
+    Trains an agent using the Advantage Actor-Critic (A2C) algorithm.
 
+    Parameters:
+    - n_steps (int): Total number of training steps.
+    - bootstrap (bool): Whether to use correct bootstrapping during training.
+    - agents_seeds (list): List of random seeds for agents.
+    - n_seeds (int): Number of agent seeds.
+    - envs (list): List of training environments.
+    - env_eval (environment): Evaluation environment.
+    - n_updates (int): Number of updates to perform during training.
+    - bool_discrete (bool): Whether the action space is discrete or continuous.
+    - obs_shape (tuple): Shape of the observation space.
+    - action_space_dims (int): Dimensionality of the action space.
+    - device (str, optional): Device to use for computation (default is "cpu").
+    - critic_lr (float, optional): Learning rate for the critic network (default is 1e-3).
+    - actor_lr (float, optional): Learning rate for the actor network (default is 1e-5).
+    - n_envs (int, optional): Number of parallel environments (default is 1).
+    - n_steps_per_update (int, optional): Number of steps per update (default is 1).
+    - evaluation_interval (int, optional): Interval for evaluating agent performance (default is 200000).
+    - logging_interval (int, optional): Interval for logging training statistics (default is 1000).
+    - n_eval_runs (int, optional): Number of evaluation runs (default is 10).
+    - stochasticity_bool (bool, optional): Whether to introduce stochasticity in rewards (default is True).
+    - stochastic_reward_probability (float, optional): Probability of introducing stochasticity in rewards (default is 0.9).
+    - gamma (float, optional): Discount factor (default is 0.99).
 
-def trainAgent(n_steps, bootstrap, agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_shape,action_space_dims,device = "cpu",critic_lr = 1e-3, actor_lr = 1e-5, n_envs = 1,n_steps_per_update = 1, evaluation_interval = 200000,logging_interval = 1000, n_eval_runs = 10,stochasticity_bool = True,stochastic_reward_probability = 0.9,gamma = 0.99):
-    # LOGGED VARIABLES
+    Returns:
+    - tuple: Tuple containing logged variables including values, critic losses, actor losses, entropies, evaluation returns, training returns, and indices.
+    """
 
     # per seed
     array_size = n_steps//1000+1 # Since we round down the values, when K > 1 or n > 1 the rounding prevents to log exactly the correct amount of values
@@ -49,9 +102,8 @@ def trainAgent(n_steps, bootstrap, agents_seeds,n_seeds,envs,env_eval,n_updates,
     values = [[] for _ in range(n_seeds)] # logs the values of the agent on the fixed trajectory
     evaluation_returns_seeds = [[] for _ in range(n_seeds)]
 
-
     # get the fixed trajectory for evaluation
-    fixed_trajectory = getTrajectory()
+    fixed_trajectory = getTrajectory(bool_discrete)
 
     for s, agent_seed in enumerate(agents_seeds):
         print(f"Running seed {agent_seed} for agent {s}")
@@ -141,7 +193,6 @@ def trainAgent(n_steps, bootstrap, agents_seeds,n_seeds,envs,env_eval,n_updates,
                         episode_returns[env_idx].append(ep_reward[env_idx])
                         ep_reward[env_idx] = 0
 
-            
             for env_idx in range(n_envs):
                 # if statement to make sure we don't append the end state twice
                 if not is_terminated[env_idx] and not is_truncated[env_idx]:
@@ -171,8 +222,6 @@ def trainAgent(n_steps, bootstrap, agents_seeds,n_seeds,envs,env_eval,n_updates,
                     actor_losses[k_log, s] = actor_loss.detach().cpu().numpy()
                     entropies[k_log, s] = sum(entropy) / len(entropy)
                     k_log += 1
-                    
-     
 
             #After every 20k steps, evaluate the performance of your agent by running it for 10 episodes with a greedy action policy (without noise)
             #on a newly initialized environment and plotting the evaluation statistics below.
@@ -207,7 +256,6 @@ def trainAgent(n_steps, bootstrap, agents_seeds,n_seeds,envs,env_eval,n_updates,
                         episode_lengths.append(episode_length)  
                     evaluation_returns_seeds[s].append(np.mean(returns))
 
-
         steps_episodes_filtered,episode_returns_filtered = process_returns(steps_episodes,episode_returns)
         training_returns.append(episode_returns_filtered)
         training_returns_idx.append(steps_episodes_filtered)
@@ -215,46 +263,13 @@ def trainAgent(n_steps, bootstrap, agents_seeds,n_seeds,envs,env_eval,n_updates,
         if len(training_returns[i]) > array_size -1: #removing the last return in case it stops exactly at 500k
             training_returns[i].pop()
             training_returns_idx[i].pop()
-    print("Training return size", len(training_returns))
-    print("Training return idx size", len(training_returns_idx))
-    for i in range(len(training_returns_idx)):
-        print("Training return idx size", len(training_returns_idx[i]))
-        print("Training return size", len(training_returns[i]))
-        print("Training return", training_returns[i])
-        print("Training return idx", training_returns_idx[i])
-        print("**************************************************")
+
     training_returns = np.array(training_returns).T # Transpose the array to have the correct shape
     training_returns_idx = np.array(training_returns_idx).T
-        
-        
         
     # Logging variables for each agent
     return(values,critic_losses,actor_losses,entropies,evaluation_returns_seeds,training_returns,training_returns_idx)
 
-# Aggregate function for plotting the 3 seeds together
-def aggregate_plot(y1,y2,y3):
-    """
-    Aggregates three input curves by computing the element-wise minimum, maximum, and average.
-
-    Parameters:
-    y1, y2, y3: np.ndarray
-        Input arrays representing the three curves to be aggregated. Each array should have the same shape.
-
-    Returns:
-    y_min, y_max, y_avg: np.ndarray
-        The element-wise minimum / maximum / average of the three input curves.
-    """
-
-    # Compute minimum and maximum curves
-    y_min = np.minimum(np.minimum(y1, y2), y3)
-    y_max = np.maximum(np.maximum(y1, y2), y3)
-
-    # Compute average curve
-    y_avg = (y1 + y2 + y3) / 3
-
-    return y_min, y_max, y_avg
-
-# Aggregate function for plotting the 3 seeds together
 def aggregate_plot(y1,y2,y3):
     """
     Aggregates three input curves by computing the element-wise minimum, maximum, and average.
@@ -278,6 +293,15 @@ def aggregate_plot(y1,y2,y3):
     return y_min, y_max, y_avg
 
 def aggregate_return_seeds(x):
+    """
+    Aggregate the returns of the training for each seed across episodes.
+
+    Parameters:
+    - x (numpy.ndarray): Array containing returns for each seed across episodes.
+
+    Returns:
+    - numpy.ndarray: Array containing aggregated returns for each seed.
+    """
     x_array  = np.zeros(x.shape[0])
 
     for i in range(x.shape[0]):
@@ -285,136 +309,32 @@ def aggregate_return_seeds(x):
 
     return x_array
 
-def plot_losses_and_returns(fig, axs, compare_bool, critic_losses, actor_losses, train_returns_idx, train_returns, evaluation_returns_seeds, agents_seeds, id_agent, n_steps_per_update, n_envs, color_agent, y_lim = [1e-5, 1e-1]):
+def plotting(fig, axs, plot_traj, entropy_bool, compare_bool, critic_losses, evaluation_returns_seeds, values, agents_seeds, id_agent, color_agent, marker_style, linestyle, y_lim = [1e-5, 1e-1], n_col = [1,1], rolling_length = 1, entropies = None, loc = 0):
     """
     Plot the losses, entropy, and evaluation returns of the agent after training.
 
     Parameters:
-    fig: matplotlib.figure.Figure
-        The figure to which the subplots belong.
-    axs: np.ndarray
-        Array of subplots where the plots will be drawn.
-    compare_bool: bool
-        Boolean indicating whether plotting is performed out of comparison purposes.
-    critic_losses: np.ndarray
-        Array containing critic losses during training.
-    actor_losses: np.ndarray
-        Array containing actor losses during training.
-    entropies: np.ndarray #TODO ==> change for train_returns_idx_1a, training_returns_1a
-        Array containing entropies during training.
-    evaluation_returns_seeds: list 
-        List containing evaluation returns for different seeds.
-    agents_seeds: list
-        List of seeds used for training.
-    id_agent: int
-        Identifier for the agent.
-    n_steps_per_update: int
-        Number of steps per update during training.
-    n_envs: int
-        Number of environments used for training.
-    color_agent: str
-        Color for the plots of the agent.
-    y_lim: list, optional
-        Range for the y-axis. Default is [1e-5, 1e-1].
+    - fig (matplotlib.figure.Figure): The figure to which the subplots belong.
+    - axs (np.ndarray): Array of subplots where the plots will be drawn.
+    - plot_traj (bool): Boolean indicating whether to plot the trajectories.
+    - entropy_bool (bool): Boolean indicating whether to plot entropy.
+    - compare_bool (bool): Boolean indicating whether plotting is performed for comparison.
+    - critic_losses (np.ndarray): Array containing critic losses during training.
+    - evaluation_returns_seeds (list): List containing evaluation returns for different seeds.
+    - values (list): List containing values of the agent on fixed trajectories.
+    - agents_seeds (list): List of seeds used for training.
+    - id_agent (int): Identifier for the agent.
+    - color_agent (str): Color for the plots of the agent.
+    - marker_style (str): Style of the marker for the plots.
+    - linestyle (str): Style of the line for the plots.
+    - y_lim (list, optional): Range for the y-axis. Default is [1e-5, 1e-1].
+    - n_col (list, optional): Number of columns in the legends. Default is [1, 1].
+    - rolling_length (int, optional): Rolling length for smoothing the plots. Default is 1.
+    - entropies (np.ndarray, optional): Array containing entropies during training.
+    - loc (int, optional): Location of the legend. Default is 0.
     """
-    
-    n_seeds = len(agents_seeds) # Number of seeds used for training
-    rolling_length = 1 # Rolling length for the convolution
 
-    # Creating the lists for the aggregation
-    critic_y =[[] for _ in range(n_seeds)]
-    actor_y =[[] for _ in range(n_seeds)]
-    train_ret_y = [[] for _ in range(n_seeds)]
-    #entropy_y =[[] for _ in range(n_seeds)]
-    evaluation_returns_seeds = np.array(evaluation_returns_seeds)
-
-    # Aggregating the losses and entropy while performing convolution
-    for s, agent_seed in enumerate(agents_seeds):
-        critic_y[s] = (
-            np.convolve(np.array(critic_losses[:,s]), np.ones(rolling_length), mode="valid")
-            / rolling_length)
-        actor_y[s] = (
-            np.convolve(np.array(actor_losses[:,s]), np.ones(rolling_length), mode="valid")
-            / rolling_length)
-        train_ret_y[s] = (
-            np.convolve(np.array(train_returns[:,s]), np.ones(rolling_length), mode="valid")
-            / rolling_length)
-        # entropy_y[s] = (
-        #     np.convolve(np.array(entropies[:,s]), np.ones(rolling_length), mode="valid")
-        #     / rolling_length
-        # )
-        
-
-    # Building the y_min, y_max and y_avg for each of the plots
-    critic_y_min, critic_y_max, critic_y_avg = aggregate_plot(critic_y[0],critic_y[1],critic_y[2])
-    actor_y_min, actor_y_max, actor_y_avg = aggregate_plot(actor_y[0],actor_y[1],actor_y[2])
-    #entropy_y_min, entropy_y_max, entropy_y_avg = aggregate_plot(entropy_y[0],entropy_y[1],entropy_y[2])
-    train_returns_min, train_returns_max, train_returns_avg = aggregate_plot(train_ret_y[0], train_ret_y[1], train_ret_y[2])
-    reward_y_min, reward_y_max, reward_y_avg = aggregate_plot(evaluation_returns_seeds[0], evaluation_returns_seeds[1], evaluation_returns_seeds[2])
-
-    # x values for the plots 
-    # if compare_bool: # In case plots are compared, the x_axis is in terms of steps
-    #     x_axis = np.arange(0, critic_y_min.shape[0]) * 1000 * n_envs * n_steps_per_update #TODO: verify comparison ok
-    #     x_label = "Number of steps"
-    # else: # Otherwise the x_axis is in terms of updates
-    x_axis = np.arange(0, critic_y_min.shape[0]) * 1000
-    x_label = "Number of Steps"
-    train_returns_idx *= n_envs # To get the correct number of steps
-    reward_x = np.arange(0, reward_y_min.shape[0])
-
-    """ Plotting the losses, entropy and returns"""
-
-    # Critic loss
-    axs[0, 0].fill_between(x_axis,critic_y_min, critic_y_max, color='gray', alpha=0.3, label=f'Agent {id_agent} | Min-Max Range')
-    axs[0, 0].plot(x_axis, critic_y_avg, color=color_agent, label=f"Agent {id_agent} | Average Curve")
-    axs[0, 0].set_title('Critic Loss', fontweight='bold')
-    axs[0, 0].set_yscale('log')  # Set log scale for the y-axis
-    axs[0, 0].set_ylim(y_lim[0], y_lim[1])
-    axs[0, 0].set_xlabel(x_label)
-    axs[0, 0].legend()
-
-    # Actor loss
-    axs[0, 1].fill_between(x_axis,actor_y_min, actor_y_max, color='gray', alpha=0.3, label=f'Agent {id_agent} | Min-Max Range')
-    axs[0, 1].plot(x_axis, actor_y_avg, color=color_agent, label=f"Agent {id_agent} | Average Curve")
-    axs[0, 1].set_title('Actor Loss', fontweight='bold')
-    axs[0, 1].set_yscale('log')  # Set log scale for the y-axis
-
-    axs[0, 1].set_xlabel(x_label)
-    axs[0, 1].legend()
-
-    # print("Actor loss y min shape", actor_y_min.shape)
-    # print("Actor loss y max shape", actor_y_max.shape)
-    # print("Actor loss y avg shape", actor_y_avg.shape)
-
-    # # Entropy
-    # axs[1, 0].fill_between(x_axis,entropy_y_min, entropy_y_max, color='gray', alpha=0.3, label=f'Agent {id_agent} | Min-Max Range')
-    # axs[1, 0].plot(x_axis, entropy_y_avg, color=color_agent, label=f"Agent {id_agent} | Average Curve")
-    # axs[1, 0].set_title("Entropy", fontweight='bold')
-    # axs[1, 0].set_xlabel(x_label)
-    # axs[1, 0].legend()
-
-    # Training returns
-    axs[1, 0].fill_between(train_returns_idx,train_returns_min, train_returns_max, color='gray', alpha=0.3, label=f'Agent {id_agent} | Min-Max Range')
-    axs[1, 0].plot(train_returns_idx, train_returns_avg, color=color_agent, label=f"Agent {id_agent} | Average Curve")
-    axs[1, 0].set_title("Training returns", fontweight='bold')
-    axs[1, 0].set_xlabel("Number of steps")
-    axs[1, 0].legend()
-
-    # Evaluation rewards
-    axs[1, 1].fill_between(reward_x,reward_y_min, reward_y_max, color='gray', alpha=0.3, label=f'Agent {id_agent} | Min-Max Range')
-    axs[1, 1].plot(reward_x, reward_y_avg, color=color_agent, label=f"Agent {id_agent} | Average Curve")
-    axs[1, 1].set_title('Evaluation Returns', fontweight='bold')
-    axs[1, 1].set_xlabel("Evaluation rounds")
-    axs[1, 1].legend()
-
-    return fig, axs
-
-def three_times_one_plot(fig, axs, plot_traj, entropy_bool, compare_bool, critic_losses, evaluation_returns_seeds, values, agents_seeds, id_agent, color_agent, marker_style, linestyle, y_lim = [1e-5, 1e-1], n_col = [1,1], rolling_length = 1, entropies = None, loc = 0):
-    
-    # Plotting Critic loss, Evaluation returns and trajectories
-    #fig, axs = plt.subplots(1, 3, figsize=(10, 15))
     n_traj = 3
-
     n_seeds = len(agents_seeds) # Number of seeds used for training
 
     # Creating the list for the plots depending on which is specified
@@ -508,16 +428,26 @@ def three_times_one_plot(fig, axs, plot_traj, entropy_bool, compare_bool, critic
 
         axs[2].set_title('Value Function on Fixed Trajectories', fontweight='bold')
         axs[2].set_xlabel('Agent step during the evaluation')
-        #axs[2].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         axs[2].legend(ncol = n_col[1], loc = loc)
         axs[2].grid(False)
 
     return fig, axs
 
 def time_plots(plt, agents, training_times, colors):
+    """
+    Plot the training times for each agent.
 
+    Parameters:
+    - plt: The matplotlib.pyplot module.
+    - agents (list): List of agent names.
+    - training_times (list): List of training times for each agent.
+    - colors (list): List of colors for each agent's bar.
+
+    Returns:
+    - plt: The modified matplotlib.pyplot module.
+    """
     bars = plt.bar(agents, training_times, color=colors)
-    # Add title and labels
+
     # Adding the values on top of each bar
     for bar in bars:
         yval = bar.get_height()
@@ -527,93 +457,46 @@ def time_plots(plt, agents, training_times, colors):
     plt.ylabel('Training Time [s]')
     return plt
 
-def plot_trajectories(plt, values, agents_seeds, id_agent, marker_style, n_traj = 3):
+def lighten_color(color, factor=0.7):
     """
-    Plot the trajectories of the value function for a given agent after training.
+    Lighten the given color by a specified factor.
 
     Parameters:
-    plt: matplotlib.pyplot
-        Instance of matplotlib's pyplot module.
-    values: list or numpy.ndarray
-        Containing the value function trajectories of the agent during evaluation
-    agent_seeds: list
-        List of seeds used in the training.
-    id_agent: int
-        Identifier for the agent.
-    marker_style: str
-        Style of the markers used in the plot.
-    n_traj: int, optional
-        Number of trajectories to plot. If n_traj is greater than the number of evaluations done, all evaluations are plotted. Default is 3.
+    - color (str or tuple): Color to lighten in string (e.g., 'red') or tuple format (RGBA).
+    - factor (float): Lightening factor, ranging from 0 to 1. Default is 0.7.
+
+    Returns:
+    - list: Lightened color in RGBA format.
     """
-    n_seeds = len(agents_seeds) # Number of seeds used for training
-
-    # Arrays for the value function trajectories
-    values_arr = np.array(values) # Transforming the list to a numpy array ==> Values_arr of size (n_seeds, n_eval_done, steps_in_trajectory, 1)
-    values_sq = np.squeeze(values_arr) # Now of size (n_seeds, n_eval_done, steps_in_trajectory)
-    n_eval_done = values_sq.shape[1] # Number of evaluations done 
-    steps_in_trajectory = values_sq.shape[2] # Amount of steps in the trajectories of the value function
-    
-
-    # The code below is to select n_traj evenly spaced trajectories to plot between the first and last evaluation
-    if n_eval_done >= n_traj:
-        idx_traj = np.linspace(0, n_eval_done - 1, n_traj, dtype='int') # Selecting n_traj trajectories evenly spaced between the first and last
-    else:
-        idx_traj = np.arange(n_eval_done) # in case there are less evaluations than trajectories to plot, plot all evaluations
-
-    n_traj = len(idx_traj) # No matter how many trajectories where found, n_traj is updated to the actual length of the idx_traj
-    val_array = np.zeros((n_seeds, n_traj, steps_in_trajectory)) # Array to store the values of the selected trajectories
-    val_array = values_sq[:,idx_traj] # of size n_seeds, n_traj, steps_in_trajectory => contains only the values of the selected trajectories
-
-    traj_aggregates = np.zeros((n_seeds, n_traj, steps_in_trajectory)) # Will receive the values of y_min, y_max and y_avg for each of the n_traj for each seed
-
-    # x values for the plots
-    traj_x = np.arange(0, steps_in_trajectory)
-    for j in range(n_traj): # Storing the y_min, y_max and y_avg of each of the n_traj trajectories
-        traj_aggregates[0,j], traj_aggregates[1,j], traj_aggregates[2,j], = aggregate_plot(val_array[0][j], val_array[1][j], val_array[2][j])
-
-    #Plotting the value function along the predefined fixed trajectory
-    colors = ['blue', 'green', 'purple', 'orange', 'black', 'yellow', 'pink', 'brown', 'cyan', 'magenta']
-
-    for j in range(len(idx_traj)):
-        plt.fill_between(traj_x, traj_aggregates[0,j], traj_aggregates[1,j], color = colors[j], alpha=0.3, label=f'Agent {id_agent} | Min-Max Range')
-        plt.plot(traj_x, traj_aggregates[2,j,:], color = colors[j], marker = marker_style, label=f"Agent {id_agent} | Evaluation {idx_traj[j]+1}")
-
-    plt.title('Value Function on Fixed Trajectories', fontweight='bold')
-    plt.xlabel('Agent step during the evaluation')
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.grid(True)
-
-    return plt
-
-def lighten_color(color, factor=0.7):
     base = mcolors.to_rgba(color)
     light = [1.0, 1.0, 1.0, 1.0]  # White color in RGBA
     result = [(1 - factor) * base[i] + factor * light[i] for i in range(4)]
+    
     return result
 
 # Code for the dictionnary storing the results from the training
 def create_agent_data(agent_id, values, critic_losses, actor_losses, entropies, evaluation_returns_seeds, agents_seeds, n_steps, stochasticity_bool, n_envs, n_steps_per_update, training_returns_idx, training_returns, training_time):
     """
-    Create a dictionary entry for an agent's data.
+    Create a dictionary containing data for a specific agent.
 
     Parameters:
-        agent_id (str): The ID of the agent.
-        values (np.ndarray): The evaluation value functions data for the agent.
-        critic_losses (np.ndarray): The critic losses data for the agent.
-        actor_losses (np.ndarray): The actor losses data for the agent.
-        entropies (np.ndarray): The entropies data for the agent.
-        evaluation_returns_seeds (np.ndarray): The evaluation returns seeds data for the agent.
-        agents_seeds (list): The list of seeds used for the agents.
-        n_steps (int): The number of steps performed.
-        stochasticity_bool (bool): Indicates whether stochasticity is enabled for the training
-        n_envs (int): The number of environments used in the training.
-        n_steps_per_update (int): The number of steps per update used in the training.
-        train_returns_idx (list): The list of training returns indices (averaged over the 3 seeds).
-        train_returns (list): The list of training returns (every approximately 1k steps, not yet aggregated).
-        training_time (float): The time taken for training the agent (3 seeds additioned together)
+    - agent_id (str or int): Identifier for the agent.
+    - values (list): List of values for the agent.
+    - critic_losses (np.ndarray): Array containing critic losses during training.
+    - actor_losses (np.ndarray): Array containing actor losses during training.
+    - entropies (np.ndarray): Array containing entropies during training.
+    - evaluation_returns_seeds (list): List containing evaluation returns for different seeds.
+    - agents_seeds (list): List of seeds used for training.
+    - n_steps (int): Number of training steps.
+    - stochasticity_bool (bool): Boolean indicating whether stochasticity is enabled.
+    - n_envs (int): Number of environments used for training.
+    - n_steps_per_update (int): Number of steps per update during training.
+    - training_returns_idx (list): List of training returns indices.
+    - training_returns (list): List of training returns.
+    - training_time (float): Training time in seconds.
 
     Returns:
-        dict: The dictionary entry for the agent's data.
+    - dict: Dictionary containing agent data.
     """
     agent_data = {
         'values': values,
@@ -659,19 +542,18 @@ def load_agents_data(filename):
         reconstructed_agents_data[key] = loaded_data[key].item()
     return reconstructed_agents_data
 
-# # List of lists
-# list_of_lists = [
-#     [1, 14, 40, 150, 900, 1002, 1600, 2100, 2900, 3205],
-#     [3, 12, 1002, 1700, 1500, 2004, 3209]
-# ]
-
-# # Second list of lists
-# second_list_of_lists = [
-#     [0.1, 0.2, 0.4, 0.6, 0.7, 0.9, 1, 1.2, 1.4, 1.205],
-#     [2.4, 2.5, 2.6, 2.7, 2.8, 3, 3.2]
-# ]
 # Function to get the first value and index per thousand group for a sublist
 def get_first_per_thousand(sublist):
+    """
+    Get the first value encountered in each group of thousand values in the input sublist.
+
+    Parameters:
+    - sublist (list): List of values.
+
+    Returns:
+    - filtered_values (list): List containing the first value encountered in each group of thousand values.
+    - indexes (list): List of tuples containing the index and value of the first value encountered in each group of thousand values.
+    """
     thousands_encountered = set()
     filtered_values = []
     indexes = []
@@ -682,10 +564,20 @@ def get_first_per_thousand(sublist):
                 filtered_values.append(value)
                 indexes.append((j, value))  # Store index and value as a tuple
                 thousands_encountered.add(thousand_group)
+
     return filtered_values, indexes
 
 def process_list_each1k(list_of_lists):
-    
+    """
+    Process each sublist in the given list of lists to find the first value encountered in each group of thousand values.
+
+    Parameters:
+    - list_of_lists (list): List of sublists containing values.
+
+    Returns:
+    - final_filtered_values (list): List containing the smallest value encountered in each group of thousand values.
+    - final_indexes (list): List of tuples containing the index and value of the smallest value encountered in each group of thousand values.
+    """
     # Process each sublist
     results = []
     for i, sublist in enumerate(list_of_lists):
@@ -716,12 +608,21 @@ def process_list_each1k(list_of_lists):
     
     return final_filtered_values, final_indexes
 
-def process_returns(train_returns_idx,train_returns):
+def process_returns(train_returns_idx, train_returns):
+    """
+    Process the returns obtained during training to filter out only the returns obtained at the end of each thousand steps.
 
+    Parameters:
+    - train_returns_idx (list): List of lists containing the indices of returns obtained during training.
+    - train_returns (list): List of lists containing the returns obtained during training.
+
+    Returns:
+    - train_returns_idx_filtered (list): List containing the indices of the returns obtained at the end of each thousand steps.
+    - train_returns_filtered (list): List containing the returns obtained at the end of each thousand steps.
+    """
     train_returns_idx_filtered, idx = process_list_each1k(train_returns_idx)
     # Extract values from the second list of lists using the final indexes
     train_returns_filtered = []
-    #print(idx)
     for i, j in idx:
         train_returns_filtered.append(train_returns[i][j])
 
