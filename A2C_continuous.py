@@ -166,8 +166,8 @@ class A2C(nn.Module):
             advantages_all[:,env_idx] = advantages.T
 
         # Compute the critic loss and the actor loss
-        critic_loss = advantages.pow(2).mean() 
-        actor_loss = -(advantages.detach() * action_log_probs).mean()
+        critic_loss = advantages_all.pow(2).mean() 
+        actor_loss = -(advantages_all.detach() * action_log_probs).mean()
 
         return (critic_loss, actor_loss)
     
