@@ -22,7 +22,7 @@ def set_seed(seed):
 
 def getTrajectory(discrete_bool):
     """
-    Generates a trajectory for an environment.
+    Generates arbitrary calibrated trajectories for an environment to make the pendulum fall after certain steps.
 
     Parameters:
     - discrete_bool (bool): A boolean indicating whether the environment is discrete or continuous.
@@ -31,31 +31,34 @@ def getTrajectory(discrete_bool):
     - states (list): A list containing the states of the environment over the trajectory.
     """
     # create a new sample environment to get new random parameters
-    if discrete_bool: # Discrete case
-        env = gym.make("CartPole-v1", max_episode_steps=500)
-    else: # Continuous case
-        env = gym.make("InvertedPendulum-v4", max_episode_steps=1000)
     states = []
-    # get an initial state
-    state, info = env.reset(seed=42)
-    states.append(state)
     done = False
+    if discrete_bool: # Discrete case ==> Seed 40 and 5 steps left before pushing right
+        env = gym.make("CartPole-v1", max_episode_steps=500)
+        # get an initial state
+        state, info = env.reset(seed=40)
+        states.append(state)
+        k = 0
+        left, right = 0, 1
 
+    else: # Continuous case ==> Seed 42 and 5 steps left [-0.2] before pushing right [0.5]
+        env = gym.make("InvertedPendulum-v4", max_episode_steps=1000)
+        # get an initial state
+        state, info = env.reset(seed=42)
+        states.append(state)
+        k = 1
+        left, right = [-0.2], [0.5]
+    
     # play one episode
-    for i in range(6):
+    for i in range(5+k):
         # perform the action A_{t} in the environment to get S_{t+1} and R_{t+1}
-        if discrete_bool: # Discrete case
-            state, reward, terminated, truncated, info = env.step(0) # only pushes left (0 is left, 1 is right)
-        else: # Continuous case
-            state, reward, terminated, truncated, info = env.step([-0.2]) # only pushes left
+        state, reward, terminated, truncated, info = env.step(left) # only pushes left (0 is left, 1 is right)
         states.append(state)
         #pause for 0.5s
     while not done:
         # perform the action A_{t} in the environment to get S_{t+1} and R_{t+1}
-        if discrete_bool: # Discrete case
-            state, reward, terminated, truncated, info = env.step(1) # only pushes right (0 is left, 1 is right)
-        else: # Continuous case
-            state, reward, terminated, truncated, info = env.step([1]) # only pushes right
+
+        state, reward, terminated, truncated, info = env.step(right) # only pushes right (0 is left, 1 is right)
         states.append(state)
         done = terminated or truncated
     env.close()
@@ -263,6 +266,9 @@ def trainAgent(n_steps, bootstrap, agents_seeds,n_seeds,envs,env_eval,n_updates,
         if len(training_returns[i]) > array_size -1: #removing the last return in case it stops exactly at 500k
             training_returns[i].pop()
             training_returns_idx[i].pop()
+        while len(training_returns[i]) < array_size -1:
+            training_returns[i].append(training_returns[i][-1])
+            training_returns_idx[i].append(training_returns_idx[i][-1])
 
     training_returns = np.array(training_returns).T # Transpose the array to have the correct shape
     training_returns_idx = np.array(training_returns_idx).T
@@ -309,13 +315,15 @@ def aggregate_return_seeds(x):
 
     return x_array
 
-def plotting(fig, axs, plot_traj, entropy_bool, compare_bool, critic_losses, evaluation_returns_seeds, values, agents_seeds, id_agent, color_agent, marker_style, linestyle, y_lim = [1e-5, 1e-1], n_col = [1,1], rolling_length = 1, entropies = None, loc = 0):
+def plotting(fig, axs, plot_traj, n_envs, n_steps_per_update, entropy_bool, compare_bool, critic_losses, evaluation_returns_seeds, values, agents_seeds, id_agent, color_agent, marker_style, linestyle, y_lim = [1e-5, 1e-1], n_col = [1,1], rolling_length = 1, entropies = None, loc = 0):
     """
     Plot the losses, entropy, and evaluation returns of the agent after training.
 
     Parameters:
     - fig (matplotlib.figure.Figure): The figure to which the subplots belong.
     - axs (np.ndarray): Array of subplots where the plots will be drawn.
+    - n_envs (int): Number of parallel environments used for training.
+    - n_steps_per_update (int): Number of steps per update during training.
     - plot_traj (bool): Boolean indicating whether to plot the trajectories.
     - entropy_bool (bool): Boolean indicating whether to plot entropy.
     - compare_bool (bool): Boolean indicating whether plotting is performed for comparison.
@@ -371,6 +379,7 @@ def plotting(fig, axs, plot_traj, entropy_bool, compare_bool, critic_losses, eva
         # The code below is to select n_traj evenly spaced trajectories to plot between the first and last evaluation
         if n_eval_done >= n_traj:
             idx_traj = np.linspace(0, n_eval_done - 1, n_traj, dtype='int') # Selecting n_traj trajectories evenly spaced between the first and last
+            #idx_traj = np.array([0,1,steps_in_trajectory-2]) # For question 1 when trying to show wrong bootstrap ==> plotting the 2nd evaluation
         else:
             idx_traj = np.arange(n_eval_done) # in case there are less evaluations than trajectories to plot, plot all evaluations
 
@@ -401,8 +410,12 @@ def plotting(fig, axs, plot_traj, entropy_bool, compare_bool, critic_losses, eva
         axs[0].legend(ncol = n_col[0])
     
     else:
-        axs[0].fill_between(x_axis,critic_y_min, critic_y_max, color=color_agent[0], alpha=0.3, label=f'{id_agent} | Min-Max')
-        axs[0].plot(x_axis, critic_y_avg, color=color_agent[-1], label=f"{id_agent} | Average")
+        if compare_bool:
+            axs[0].fill_between(x_axis,critic_y_min, critic_y_max, color=color_agent[0], alpha=0.3)
+            axs[0].plot(x_axis, critic_y_avg, color=color_agent[-1], label=f"{id_agent} | K={n_envs} & n={n_steps_per_update}")
+        else:
+            axs[0].fill_between(x_axis,critic_y_min, critic_y_max, color=color_agent[0], alpha=0.3, label=f'{id_agent} | Min-Max')
+            axs[0].plot(x_axis, critic_y_avg, color=color_agent[-1], label=f"{id_agent} | Average")
         axs[0].set_title('Critic Loss', fontweight='bold')
         axs[0].set_yscale('log')  # Set log scale for the y-axis
         axs[0].set_ylim(y_lim[0], y_lim[1])
@@ -410,8 +423,12 @@ def plotting(fig, axs, plot_traj, entropy_bool, compare_bool, critic_losses, eva
         axs[0].legend(ncol = n_col[0])
 
     # Evaluation rewards
-    axs[1].fill_between(reward_x,reward_y_min, reward_y_max, color=color_agent[0], alpha=0.3, label=f'{id_agent} | Min-Max')
-    axs[1].plot(reward_x, reward_y_avg, color=color_agent[-1], label=f"{id_agent} | Average")
+    if compare_bool:
+        axs[1].fill_between(reward_x,reward_y_min, reward_y_max, color=color_agent[0], alpha=0.3)
+        axs[1].plot(reward_x, reward_y_avg, color=color_agent[-1], linestyle = linestyle, label=f"{id_agent} | K={n_envs} & n={n_steps_per_update}")
+    else:
+        axs[1].fill_between(reward_x,reward_y_min, reward_y_max, color=color_agent[0], alpha=0.3, label=f'{id_agent} | Min-Max')
+        axs[1].plot(reward_x, reward_y_avg, color=color_agent[-1], label=f"{id_agent} | Average")
     axs[1].set_title('Evaluation Returns', fontweight='bold')
     axs[1].set_xlabel("Evaluation rounds")
     axs[1].legend(ncol = n_col[0])
