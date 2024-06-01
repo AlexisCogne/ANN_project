@@ -5,6 +5,7 @@ import A2C_continuous
 import A2C_discrete
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 def set_seed(seed):
     torch.manual_seed(seed) # pytorch random seed
@@ -35,7 +36,7 @@ def getTrajectory():
 
 
 
-def trainAgent(n_steps, agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_shape,action_space_dims,device = "cpu",critic_lr = 1e-3, actor_lr = 1e-5, n_envs = 1,n_steps_per_update = 1, evaluation_interval = 200000,logging_interval = 1000, n_eval_runs = 10,stochasticity_bool = True,stochastic_reward_probability = 0.9,gamma = 0.99):
+def trainAgent(n_steps, bootstrap, agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discrete,obs_shape,action_space_dims,device = "cpu",critic_lr = 1e-3, actor_lr = 1e-5, n_envs = 1,n_steps_per_update = 1, evaluation_interval = 200000,logging_interval = 1000, n_eval_runs = 10,stochasticity_bool = True,stochastic_reward_probability = 0.9,gamma = 0.99):
     # LOGGED VARIABLES
 
     # per seed
@@ -116,8 +117,10 @@ def trainAgent(n_steps, agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discre
                         # introduce stochasticity in the reward
                         if np.random.rand() < stochastic_reward_probability:
                             reward = 0
-
-                    mask = not is_terminated[env_idx] # define mask for bootstrapping
+                    if bootstrap:
+                        mask = not is_terminated[env_idx] # define mask for bootstrapping
+                    else:
+                        mask = 1 # When the wrong bootstrapping needs to be run
 
                     # log the value, reward and action log prob of the last step
                     n_value_preds[step][env_idx] = torch.squeeze(V_t)
@@ -208,6 +211,18 @@ def trainAgent(n_steps, agents_seeds,n_seeds,envs,env_eval,n_updates,bool_discre
         steps_episodes_filtered,episode_returns_filtered = process_returns(steps_episodes,episode_returns)
         training_returns.append(episode_returns_filtered)
         training_returns_idx.append(steps_episodes_filtered)
+    for i in range(n_seeds):
+        if len(training_returns[i]) > array_size -1: #removing the last return in case it stops exactly at 500k
+            training_returns[i].pop()
+            training_returns_idx[i].pop()
+    print("Training return size", len(training_returns))
+    print("Training return idx size", len(training_returns_idx))
+    for i in range(len(training_returns_idx)):
+        print("Training return idx size", len(training_returns_idx[i]))
+        print("Training return size", len(training_returns[i]))
+        print("Training return", training_returns[i])
+        print("Training return idx", training_returns_idx[i])
+        print("**************************************************")
     training_returns = np.array(training_returns).T # Transpose the array to have the correct shape
     training_returns_idx = np.array(training_returns_idx).T
         
@@ -362,7 +377,7 @@ def plot_losses_and_returns(fig, axs, compare_bool, critic_losses, actor_losses,
     axs[0, 1].fill_between(x_axis,actor_y_min, actor_y_max, color='gray', alpha=0.3, label=f'Agent {id_agent} | Min-Max Range')
     axs[0, 1].plot(x_axis, actor_y_avg, color=color_agent, label=f"Agent {id_agent} | Average Curve")
     axs[0, 1].set_title('Actor Loss', fontweight='bold')
-    #axs[0, 1].set_yscale('log')  # Set log scale for the y-axis
+    axs[0, 1].set_yscale('log')  # Set log scale for the y-axis
 
     axs[0, 1].set_xlabel(x_label)
     axs[0, 1].legend()
@@ -394,81 +409,123 @@ def plot_losses_and_returns(fig, axs, compare_bool, critic_losses, actor_losses,
 
     return fig, axs
 
-def three_time_one_plot(fig, axs, compare_bool, critic_losses, evaluation_returns_seeds, values, agents_seeds, id_agent, color_agent, marker_style, y_lim = [1e-5, 1e-1]):
+def three_times_one_plot(fig, axs, plot_traj, entropy_bool, compare_bool, critic_losses, evaluation_returns_seeds, values, agents_seeds, id_agent, color_agent, marker_style, linestyle, y_lim = [1e-5, 1e-1], n_col = [1,1], rolling_length = 1, entropies = None, loc = 0):
     
     # Plotting Critic loss, Evaluation returns and trajectories
     #fig, axs = plt.subplots(1, 3, figsize=(10, 15))
     n_traj = 3
 
     n_seeds = len(agents_seeds) # Number of seeds used for training
-    rolling_length = 1 # Rolling length for the convolution
 
-    # Creating the list for the critic loss
-    critic_y =[[] for _ in range(n_seeds)]
+    # Creating the list for the plots depending on which is specified
+    if entropy_bool:
+        entropy_y =[[] for _ in range(n_seeds)]
+    else: 
+        critic_y =[[] for _ in range(n_seeds)]
     
     for s, agent_seed in enumerate(agents_seeds):
-        critic_y[s] = (
+        if entropy_bool:
+            entropy_y[s] = (
+                np.convolve(np.array(entropies[:,s]), np.ones(rolling_length), mode="valid")
+                / rolling_length)
+        else:
+            critic_y[s] = (
             np.convolve(np.array(critic_losses[:,s]), np.ones(rolling_length), mode="valid")
             / rolling_length)
     
     # Building the y_min, y_max and y_avg for each of the plots
-    critic_y_min, critic_y_max, critic_y_avg = aggregate_plot(critic_y[0],critic_y[1],critic_y[2])
+    if entropy_bool:
+        entropy_y_min, entropy_y_max, entropy_y_avg = aggregate_plot(entropy_y[0],entropy_y[1],entropy_y[2])
+    else:
+        critic_y_min, critic_y_max, critic_y_avg = aggregate_plot(critic_y[0],critic_y[1],critic_y[2])
     evaluation_returns_seeds = np.array(evaluation_returns_seeds)
     reward_y_min, reward_y_max, reward_y_avg = aggregate_plot(evaluation_returns_seeds[0], evaluation_returns_seeds[1], evaluation_returns_seeds[2])
 
     # Arrays for the value function trajectories
-    values_arr = np.array(values) # Transforming the list to a numpy array ==> Values_arr of size (n_seeds, n_eval_done, steps_in_trajectory, 1)
-    values_sq = np.squeeze(values_arr) # Now of size (n_seeds, n_eval_done, steps_in_trajectory)
-    n_eval_done = values_sq.shape[1] # Number of evaluations done 
-    steps_in_trajectory = values_sq.shape[2] # Amount of steps in the trajectories of the value function
-    
-    # The code below is to select n_traj evenly spaced trajectories to plot between the first and last evaluation
-    if n_eval_done >= n_traj:
-        idx_traj = np.linspace(0, n_eval_done - 1, n_traj, dtype='int') # Selecting n_traj trajectories evenly spaced between the first and last
-    else:
-        idx_traj = np.arange(n_eval_done) # in case there are less evaluations than trajectories to plot, plot all evaluations
+    if plot_traj:
+        values_arr = np.array(values) # Transforming the list to a numpy array ==> Values_arr of size (n_seeds, n_eval_done, steps_in_trajectory, 1)
+        values_sq = np.squeeze(values_arr) # Now of size (n_seeds, n_eval_done, steps_in_trajectory)
+        n_eval_done = values_sq.shape[1] # Number of evaluations done 
+        steps_in_trajectory = values_sq.shape[2] # Amount of steps in the trajectories of the value function
+        
+        # The code below is to select n_traj evenly spaced trajectories to plot between the first and last evaluation
+        if n_eval_done >= n_traj:
+            idx_traj = np.linspace(0, n_eval_done - 1, n_traj, dtype='int') # Selecting n_traj trajectories evenly spaced between the first and last
+        else:
+            idx_traj = np.arange(n_eval_done) # in case there are less evaluations than trajectories to plot, plot all evaluations
 
-    n_traj = len(idx_traj) # No matter how many trajectories where found, n_traj is updated to the actual length of the idx_traj
-    val_array = np.zeros((n_seeds, n_traj, steps_in_trajectory)) # Array to store the values of the selected trajectories
-    val_array = values_sq[:,idx_traj] # of size n_seeds, n_traj, steps_in_trajectory => contains only the values of the selected trajectories
+        n_traj = len(idx_traj) # No matter how many trajectories where found, n_traj is updated to the actual length of the idx_traj
+        val_array = np.zeros((n_seeds, n_traj, steps_in_trajectory)) # Array to store the values of the selected trajectories
+        val_array = values_sq[:,idx_traj] # of size n_seeds, n_traj, steps_in_trajectory => contains only the values of the selected trajectories
 
-    traj_aggregates = np.zeros((n_seeds, n_traj, steps_in_trajectory)) # Will receive the values of y_min, y_max and y_avg for each of the n_traj for each seed
-    for j in range(n_traj): # Storing the y_min, y_max and y_avg of each of the n_traj trajectories
-        traj_aggregates[0,j], traj_aggregates[1,j], traj_aggregates[2,j], = aggregate_plot(val_array[0][j], val_array[1][j], val_array[2][j])
+        traj_aggregates = np.zeros((n_seeds, n_traj, steps_in_trajectory)) # Will receive the values of y_min, y_max and y_avg for each of the n_traj for each seed
+        for j in range(n_traj): # Storing the y_min, y_max and y_avg of each of the n_traj trajectories
+            traj_aggregates[0,j], traj_aggregates[1,j], traj_aggregates[2,j], = aggregate_plot(val_array[0][j], val_array[1][j], val_array[2][j])
 
     # Building the x axis for the plots
-    x_axis = np.arange(0, critic_y_min.shape[0]) * 1000
+    if entropy_bool:
+        x_axis = np.arange(0, entropy_y_min.shape[0]) * 1000
+    else:
+        x_axis = np.arange(0, critic_y_min.shape[0]) * 1000
     reward_x = np.arange(0, reward_y_min.shape[0])
-    traj_x = np.arange(0, steps_in_trajectory)
+    if plot_traj:
+        traj_x = np.arange(0, steps_in_trajectory)
 
     # Plotting
-    axs[0].fill_between(x_axis,critic_y_min, critic_y_max, color='gray', alpha=0.3, label=f'Agent {id_agent} | Min-Max Range')
-    axs[0].plot(x_axis, critic_y_avg, color=color_agent[0], label=f"Agent {id_agent} | Average Curve")
-    axs[0].set_title('Critic Loss', fontweight='bold')
-    axs[0].set_yscale('log')  # Set log scale for the y-axis
-    axs[0].set_ylim(y_lim[0], y_lim[1])
-    axs[0].set_xlabel("Number of steps")
-    axs[0].legend()
+    if entropy_bool:
+        axs[0].fill_between(x_axis,entropy_y_min, entropy_y_max, color=color_agent[0], alpha=0.3, label=f'{id_agent} | Min-Max')
+        axs[0].plot(x_axis, entropy_y_avg, color=color_agent[-1], label=f"{id_agent} | Average")
+        axs[0].set_title("Entropy", fontweight='bold')
+        axs[0].set_ylim(y_lim[0], y_lim[1])
+        axs[0].set_xlabel("Number of steps")
+        axs[0].legend(ncol = n_col[0])
+    
+    else:
+        axs[0].fill_between(x_axis,critic_y_min, critic_y_max, color=color_agent[0], alpha=0.3, label=f'{id_agent} | Min-Max')
+        axs[0].plot(x_axis, critic_y_avg, color=color_agent[-1], label=f"{id_agent} | Average")
+        axs[0].set_title('Critic Loss', fontweight='bold')
+        axs[0].set_yscale('log')  # Set log scale for the y-axis
+        axs[0].set_ylim(y_lim[0], y_lim[1])
+        axs[0].set_xlabel("Number of steps")
+        axs[0].legend(ncol = n_col[0])
 
     # Evaluation rewards
-    axs[1].fill_between(reward_x,reward_y_min, reward_y_max, color='gray', alpha=0.3, label=f'Agent {id_agent} | Min-Max Range')
-    axs[1].plot(reward_x, reward_y_avg, color=color_agent[0], label=f"Agent {id_agent} | Average Curve")
+    axs[1].fill_between(reward_x,reward_y_min, reward_y_max, color=color_agent[0], alpha=0.3, label=f'{id_agent} | Min-Max')
+    axs[1].plot(reward_x, reward_y_avg, color=color_agent[-1], label=f"{id_agent} | Average")
     axs[1].set_title('Evaluation Returns', fontweight='bold')
     axs[1].set_xlabel("Evaluation rounds")
-    axs[1].legend()
+    axs[1].legend(ncol = n_col[0])
 
     # Trajectories
-    for j in range(len(idx_traj)):
-        axs[2].fill_between(traj_x, traj_aggregates[0,j], traj_aggregates[1,j], color = color_agent[j], alpha=0.3, label=f'Agt {id_agent} | Min-Max')
-        axs[2].plot(traj_x, traj_aggregates[2,j,:], color = color_agent[j], marker = marker_style, label=f"Agt {id_agent} | Eval {idx_traj[j]+1}")
+    if plot_traj: # Chooses whether to plot the trajectories or not
+        for j in range(len(idx_traj)):
+            if compare_bool:
+                label = f'Eval {idx_traj[j]+1} | {id_agent}'
+            else: # selects whether to add the min-max range or not
+                label = f'Eval {idx_traj[j]+1} | Average'
+                axs[2].fill_between(traj_x, traj_aggregates[0,j], traj_aggregates[1,j], color = color_agent[j], alpha=0.3, linestyle = linestyle, label=f'Eval {idx_traj[j]+1} | Min-Max')
+            axs[2].plot(traj_x, traj_aggregates[2,j,:], color = color_agent[j], marker = marker_style, linestyle = linestyle, label=label)
 
-    axs[2].set_title('Value Function on Fixed Trajectories', fontweight='bold')
-    axs[2].set_xlabel('Agent step during the evaluation')
-    #axs[2].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    axs[2].legend()
-    axs[2].grid(True)
+        axs[2].set_title('Value Function on Fixed Trajectories', fontweight='bold')
+        axs[2].set_xlabel('Agent step during the evaluation')
+        #axs[2].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        axs[2].legend(ncol = n_col[1], loc = loc)
+        axs[2].grid(False)
 
     return fig, axs
+
+def time_plots(plt, agents, training_times, colors):
+
+    bars = plt.bar(agents, training_times, color=colors)
+    # Add title and labels
+    # Adding the values on top of each bar
+    for bar in bars:
+        yval = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2, yval, int(yval), ha='center', va='bottom')
+
+    plt.title('Training Times for Each Agents', fontweight='bold')
+    plt.ylabel('Training Time [s]')
+    return plt
 
 def plot_trajectories(plt, values, agents_seeds, id_agent, marker_style, n_traj = 3):
     """
@@ -527,6 +584,12 @@ def plot_trajectories(plt, values, agents_seeds, id_agent, marker_style, n_traj 
     plt.grid(True)
 
     return plt
+
+def lighten_color(color, factor=0.7):
+    base = mcolors.to_rgba(color)
+    light = [1.0, 1.0, 1.0, 1.0]  # White color in RGBA
+    result = [(1 - factor) * base[i] + factor * light[i] for i in range(4)]
+    return result
 
 # Code for the dictionnary storing the results from the training
 def create_agent_data(agent_id, values, critic_losses, actor_losses, entropies, evaluation_returns_seeds, agents_seeds, n_steps, stochasticity_bool, n_envs, n_steps_per_update, training_returns_idx, training_returns, training_time):
@@ -596,133 +659,17 @@ def load_agents_data(filename):
         reconstructed_agents_data[key] = loaded_data[key].item()
     return reconstructed_agents_data
 
-# def plotAggregated(values,n_seeds,agents_seeds,critic_losses,actor_losses,entropies,id_agent,n_steps_per_update,n_envs,n_steps,stochasticity_bool,evaluation_returns_seeds):
+# # List of lists
+# list_of_lists = [
+#     [1, 14, 40, 150, 900, 1002, 1600, 2100, 2900, 3205],
+#     [3, 12, 1002, 1700, 1500, 2004, 3209]
+# ]
 
-#     rolling_length = 30 # Rolling length for the convolution
-
-#     # Arrays for the value function trajectories
-#     values_arr = np.array(values) # Transforming the list to a numpy array ==> Values_arr of size (n_seeds, n_eval_done, steps_in_trajectory, 1)
-#     values_sq = np.squeeze(values_arr) # Now of size (n_seeds, n_eval_done, steps_in_trajectory)
-#     n_eval_done = values_sq.shape[1] # Number of evaluations done 
-#     steps_in_trajectory = values_sq.shape[2] # Amount of steps in the trajectories of the value function
-#     n_traj = 4 # Amount of value function trajectories to be plotted
-
-#     # The code below is to select n_traj evenly spaced trajectories to plot between the first and last evaluation
-#     if n_eval_done >= n_traj:
-#         idx_traj = np.linspace(0, n_eval_done - 1, n_traj, dtype='int') # Selecting n_traj trajectories evenly spaced between the first and last
-#     else:
-#         idx_traj = np.arange(n_eval_done) # in case there are less evaluations than trajectories to plot, plot all evaluations
-
-#     n_traj = len(idx_traj) # No matter how many trajectories where found, n_traj is updated to the actual length of the idx_traj
-#     val_array = np.zeros((n_seeds, n_traj, steps_in_trajectory)) # Array to store the values of the selected trajectories
-#     val_array = values_sq[:,idx_traj] # of size n_seeds, n_traj, steps_in_trajectory => contains only the values of the selected trajectories
-
-#     traj_aggregates = np.zeros((n_seeds, n_traj, steps_in_trajectory)) # Will receive the values of y_min, y_max and y_avg for each of the n_traj for each seed
-
-
-#     # Creating the lists for the aggregation
-#     critic_y =[[] for _ in range(n_seeds)]
-#     actor_y =[[] for _ in range(n_seeds)]
-#     entropy_y =[[] for _ in range(n_seeds)]
-#     evaluation_returns_seeds = np.array(evaluation_returns_seeds)
-
-
-#     # Aggregating the losses and entropy while performing convolution
-#     for s, agent_seed in enumerate(agents_seeds):
-#         critic_y[s] = (
-#             np.convolve(np.array(critic_losses[:,s]), np.ones(rolling_length), mode="valid")
-#             / rolling_length)
-#         actor_y[s] = (
-#             np.convolve(np.array(actor_losses[:,s]), np.ones(rolling_length), mode="valid")
-#             / rolling_length)
-#         entropy_y[s] = (
-#             np.convolve(np.array(entropies[:,s]), np.ones(rolling_length), mode="valid")
-#             / rolling_length
-#         )
-        
-#     # Building the y_min, y_max and y_avg for each of the plots
-#     critic_y_min, critic_y_max, critic_y_avg = aggregate_plot(critic_y[0],critic_y[1],critic_y[2])
-#     actor_y_min, actor_y_max, actor_y_avg = aggregate_plot(actor_y[0],actor_y[1],actor_y[2])
-#     entropy_y_min, entropy_y_max, entropy_y_avg = aggregate_plot(entropy_y[0],entropy_y[1],entropy_y[2])
-#     reward_y_min, reward_y_max, reward_y_avg = aggregate_plot(evaluation_returns_seeds[0], evaluation_returns_seeds[1], evaluation_returns_seeds[2])
-
-#     # x values for the plots
-#     critic_x = np.arange(0, critic_y_min.shape[0])
-#     actor_x = np.arange(0, actor_y_min.shape[0]) # Not necessary
-#     entropy_x = np.arange(0, entropy_y_min.shape[0]) # Not necessary
-#     reward_x = np.arange(0, reward_y_min.shape[0])
-#     traj_x = np.arange(0, steps_in_trajectory)
-#     #ep_return_x = np.arange(0, ep_return_y_min.shape[0])
-#     for j in range(n_traj): # Storing the y_min, y_max and y_avg of each of the n_traj trajectories
-#         traj_aggregates[0,j], traj_aggregates[1,j], traj_aggregates[2,j], = aggregate_plot(val_array[0][j], val_array[1][j], val_array[2][j])
-
-#     """ Plotting the losses, entropy and returns"""
-#     fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(12, 9))
-#     fig.suptitle(f"Agent {id_agent} | Steps per update: {n_steps_per_update} | Workers: {n_envs} | Steps: {n_steps//1000}k | Stochasticity: {stochasticity_bool} | SEEDS: {agents_seeds}", x=0.5, fontsize = 12)
-
-#     # Critic loss
-#     axs[0, 0].fill_between(critic_x,critic_y_min, critic_y_max, color='gray', alpha=0.3, label='Min-Max Range')
-#     axs[0, 0].plot(critic_x, critic_y_avg, color='red', label='Average Curve')
-#     axs[0, 0].set_title('Critic Loss', fontweight='bold')
-#     axs[0, 0].set_yscale('log')  # Set log scale for the y-axis
-#     axs[0, 0].set_xlabel("Number of updates")
-
-#     # Actor loss
-#     axs[0, 1].fill_between(actor_x,actor_y_min, actor_y_max, color='gray', alpha=0.3, label='Min-Max Range')
-#     axs[0, 1].plot(actor_x, actor_y_avg, color='red', label='Average Curve')
-#     axs[0, 1].set_title('Actor Loss', fontweight='bold')
-#     axs[0, 1].set_yscale('log')  # Set log scale for the y-axis
-#     axs[0, 1].set_xlabel("Number of updates")
-
-#     # Entropy
-#     axs[1, 0].fill_between(entropy_x,entropy_y_min, entropy_y_max, color='gray', alpha=0.3, label='Min-Max Range')
-#     axs[1, 0].plot(entropy_x, entropy_y_avg, color='red', label='Average Curve')
-#     axs[1, 0].set_title("Entropy", fontweight='bold')
-#     axs[1, 0].set_xlabel("Number of updates")
-
-#     # Evaluation rewards
-#     axs[1, 1].fill_between(reward_x,reward_y_min, reward_y_max, color='gray', alpha=0.3, label='Min-Max Range')
-#     axs[1, 1].plot(reward_x, reward_y_avg, color='red', label='Average Curve')
-#     axs[1, 1].set_title('Evaluation Returns', fontweight='bold')
-#     axs[1, 1].set_xlabel("Evaluation rounds")
-
-#     #plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-#     plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-#     plt.savefig(f'figures/Agent{id_agent}_Losses&Returns.png', bbox_inches='tight')
-#     plt.show()
-
-
-#     """Plotting the value function along the predefined fixed trajectory"""
-
-#     colors = ['blue', 'green', 'purple', 'orange', 'black', 'yellow', 'pink', 'brown', 'cyan', 'magenta']
-
-#     plt.figure(figsize=(10, 6))
-
-#     for j in range(len(idx_traj)):
-#         plt.fill_between(traj_x, traj_aggregates[0,j], traj_aggregates[1,j], color = colors[j], alpha=0.3, label='Min-Max Range')
-#         plt.plot(traj_x, traj_aggregates[2,j,:], color=colors[j], label=f"Evaluation {idx_traj[j]+1}")
-
-#     plt.suptitle(f"Agent {id_agent} | Steps per update: {n_steps_per_update} | Workers: {n_envs} | Steps: {n_steps//1000}k | Stochasticity: {stochasticity_bool} | SEEDS: {agents_seeds}", x=0.5, fontsize = 12)
-#     plt.title('Value Function on Fixed Trajectories', fontweight='bold')
-#     plt.xlabel('Agent step during the evaluation')
-#     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-#     plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-#     plt.savefig(f'figures/Agent{id_agent}_Trajectories.png', bbox_inches='tight')
-#     #plt.savefig(f'figures/Agent{id_agent}_Trajectories-&-{n_steps//1000}k_steps-&-{n_envs}_workers-&-{n_steps_per_update}_steps-per-update.png', bbox_inches='tight')
-#     plt.show()
-
-
-# List of lists
-list_of_lists = [
-    [1, 14, 40, 150, 900, 1002, 1600, 2100, 2900, 3205],
-    [3, 12, 1002, 1700, 1500, 2004, 3209]
-]
-
-# Second list of lists
-second_list_of_lists = [
-    [0.1, 0.2, 0.4, 0.6, 0.7, 0.9, 1, 1.2, 1.4, 1.205],
-    [2.4, 2.5, 2.6, 2.7, 2.8, 3, 3.2]
-]
+# # Second list of lists
+# second_list_of_lists = [
+#     [0.1, 0.2, 0.4, 0.6, 0.7, 0.9, 1, 1.2, 1.4, 1.205],
+#     [2.4, 2.5, 2.6, 2.7, 2.8, 3, 3.2]
+# ]
 # Function to get the first value and index per thousand group for a sublist
 def get_first_per_thousand(sublist):
     thousands_encountered = set()
