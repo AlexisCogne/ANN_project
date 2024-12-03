@@ -14,5 +14,5 @@ Implementation on the Inverted Pendulum environment from OpenAI Gym
 - utils.py: file containing all functions used in the code
   
 # Preview
-![image](https://github.com/user-attachments/assets/fe9335e1-26cc-4c8b-9a25-98ca2e5aea04)
-
+![1_0RjBQtTqdkvfoZ_5MaLCRQ](https://github.com/user-attachments/assets/6f63d8aa-1bc1-4ed7-a1f4-f943091a5c85)
+<img width="1087" alt="image" src="https://github.com/user-attachments/assets/393e5a05-322e-438f-a9da-5e5dbf1e525f">
