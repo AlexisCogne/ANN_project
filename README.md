@@ -1,5 +1,5 @@
 # Deep Reinforcement Learning Mini-Project
-From Discrete to Continuous Advantage Actor-Critic (A2C)
+From Discrete to Continuous Advantage Actor-Critic (A2C) \
 Implementation on the Inverted Pendulum environment from OpenAI Gym
 
 # Team
@@ -12,5 +12,7 @@ Implementation on the Inverted Pendulum environment from OpenAI Gym
 - main.ipynb: notebook file to train the 6 agents (discrete, continous and with several steps or workers)
 - plotting.ipynb: notebook file to generate all the plots used in the report
 - utils.py: file containing all functions used in the code
+  
 # Preview
+![image](https://github.com/user-attachments/assets/fe9335e1-26cc-4c8b-9a25-98ca2e5aea04)
 
