@@ -14,7 +14,7 @@ Implementation on the Inverted Pendulum environment from OpenAI Gym
 - utils.py: file containing all functions used in the code
   
 # Preview
-| Inverted Pendulum | Critic Loss |
+| Inverted Pendulum | Critic Loss (Discrete Environment) |
 |----------------|-------------------------------------|
 | ![Inverted Pendulum](https://github.com/user-attachments/assets/6f63d8aa-1bc1-4ed7-a1f4-f943091a5c85) | ![Critic Loss](https://github.com/user-attachments/assets/393e5a05-322e-438f-a9da-5e5dbf1e525f) |
 
